@@ -1,8 +1,8 @@
 locals {
-  infra_profile_names = [for v in var.clusters : v.profiles.infra.name]
+  infra_profile_names = [for v in local.clusters : v.profiles.infra.name]
 
   addon_profile_names = flatten([
-    for v in var.clusters : [
+    for v in local.clusters : [
       for k in try(v.profiles.addons, []) : k.name
   ]])
 
@@ -28,12 +28,12 @@ locals {
   }
 
   cluster_infra_profiles_map = {
-    for v in var.clusters :
+    for v in local.clusters :
     v.name => v.profiles.infra
   }
 
   cluster_addon_profiles_map = {
-    for v in var.clusters :
+    for v in local.clusters :
     v.name => try(v.profiles.addons, [])
   }
 
@@ -47,7 +47,7 @@ locals {
     ]) : v.name => v.value
   }
 
-  packs         = flatten([for v in var.profiles : [for vv in v.packs : vv if can(vv.version)]])
+  packs         = flatten([for v in local.profiles : [for vv in v.packs : vv if can(vv.version)]])
   pack_names    = [for v in local.packs : v.name]
   pack_versions = [for v in local.packs : v.version]
 
@@ -57,6 +57,58 @@ locals {
     [for i, v in local.packs : join("", [v.name, "-", v.version])],
     [for v in local.pack_uids : v]
   )
+
+  cluster_profiles_map = {
+  for v in local.profiles :
+    v.name => v
+  }
+
+  //simple flat map structure
+  /*
+
+  {
+  "<cp-name>-<pack-name>": "name: small-app
+        spec: small-app"
+  }
+
+  */
+
+/*
+
+      - name: install-application
+        is_manifest_pack: true
+        manifest_name: install-app-crd
+        override_type: params
+        params: # cluster profile pack value/manifest content will be repeated as many times map of params is specified
+          - PROFILE_NAME: small-app
+            PROFILE_SPEC_NAME: small-app
+
+
+        manifest
+        ----
+        name: small-app
+        spec: small-app
+
+*/
+  cluster_profiles-params-replaced = { for v in flatten([
+  for k, v in local.cluster_profiles_map : [ // k is cp name , v is cp
+  for p in try(v.packs, []) : { //getting all packs from one cp
+    name = format("%s-%s", k, p.name) //
+    value = join("\n", [
+    for line in split("\n", try(p.is_manifest_pack, false) ?
+    element([for x in local.cluster_profiles_map[format("%s-%s", v.name, p.name)].manifest : x.content if x.name == p.manifest_name], 0) : //only if it is manifest pack
+    local.cluster_profiles_map[format("%s-%s", v.name, p.name)].values) : //only if it is normal pack
+    format(
+    replace(line, "/%(${join("|", keys(p.params))})%/", "%s"),
+    [
+    for value in flatten(regexall("%(${join("|", keys(p.params))})%", line)) :
+    lookup(p.params, value)
+    ]...
+    )
+    ])
+  } if p.override_type == "params"
+  ]]) : v.name => v.value
+  }
 }
 
 data "spectrocloud_pack" "data_packs" {
@@ -73,7 +125,7 @@ data "spectrocloud_cluster_profile" "this" {
 }
 
 resource "spectrocloud_cluster_profile" "profile_resource" {
-  for_each    = var.profiles
+  for_each    = local.profiles
   name        = each.value.name
   description = each.value.description
   cloud       = "eks"

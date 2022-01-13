@@ -195,7 +195,7 @@ locals {
 }
 
 resource "spectrocloud_cluster_eks" "this" {
-  for_each = var.clusters
+  for_each = local.clusters
   name     = each.value.name
 
   cluster_profile {

@@ -1,4 +1,5 @@
 name: eks-dev
+env: prod
 cloud_account: "${ACCOUNT_DEV_NAME}"
 profiles:
   infra:
